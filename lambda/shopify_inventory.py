@@ -10,9 +10,6 @@ import botocore
 import uuid
 
 SHOPIFY_VERSION = '2020-10'
-SHOPIFY_PASSWORD = os.environ.get('SHOPIFY_PASSWORD')
-SHOPIFY_SHOP = os.environ.get('SHOPIFY_SHOP')
-SHOPIFY_GRAPHQL_URL = '{}.myshopify.com'.format(SHOPIFY_SHOP)
 
 TABLE_NAME = os.environ.get('TABLE_NAME')
 
@@ -20,14 +17,41 @@ config = botocore.config.Config(retries={'max_attempts': 10, 'mode': 'standard'}
 resource = boto3.resource('dynamodb', config=config)
 table = resource.Table(TABLE_NAME)
 
-session = shopify.Session(SHOPIFY_GRAPHQL_URL, SHOPIFY_VERSION, SHOPIFY_PASSWORD)
-shopify.ShopifyResource.activate_session(session)
+class ShopifyApiError(Exception):
+  def __init__(self, graphql, response):
+    self.graphql = graphql
+    self.response = response
+    
+def raiseIfError(graphql, response):
+  try:
+    resdic = json.loads(response)
+  except:
+    raise ShopifyApiError(graphql.replace('\n', ' '), response)
+  if 'errors' in resdic:
+    raise ShopifyApiError(graphql.replace('\n', ' '), response)
+  if 'userErrors' in resdic:
+    if resdic['userErrors']:
+      raise ShopifyApiError(graphql.replace('\n', ' '), response)
+  
 
 def lambda_handler(event, context):
   print(event)
   
   for record in event['Records']:
     
+    body = json.loads(record['body'])
+    
+    if body['shop'] == 'figmentresearchshop1':
+      SHOPIFY_PASSWORD = os.environ.get('SHOPIFY_PASSWORD_DEV')
+      SHOPIFY_SHOP = os.environ.get('SHOPIFY_SHOP_DEV')
+    else:
+      SHOPIFY_PASSWORD = os.environ.get('SHOPIFY_PASSWORD_PROD')
+      SHOPIFY_SHOP = os.environ.get('SHOPIFY_SHOP_PROD')
+      
+    SHOPIFY_GRAPHQL_URL = '{}.myshopify.com'.format(SHOPIFY_SHOP)
+    session = shopify.Session(SHOPIFY_GRAPHQL_URL, SHOPIFY_VERSION, SHOPIFY_PASSWORD)
+    shopify.ShopifyResource.activate_session(session)
+
     start = datetime.now()
     
     costs = []
@@ -37,10 +61,12 @@ def lambda_handler(event, context):
     
     # 商品を登録する
     
+    title = 'title-{}'.format(SKU)
+    
     tempstr_create = """
       mutation {
         productCreate(input: {
-          title: "テスト商品"
+          title: "${title}"
           variants: {
             sku: "$sku"
             inventoryManagement: SHOPIFY
@@ -66,19 +92,26 @@ def lambda_handler(event, context):
               }
             }
           }
+          userErrors {
+            field
+            message
+          }
         }
       }
     """
     
-    gqlstr = Template(tempstr_create).substitute(sku=SKU)
+    gqlstr = Template(tempstr_create).substitute(sku=SKU, title=title)
+    print(gqlstr.replace('\n', ' '))
     res = shopify.GraphQL().execute(gqlstr)
+    print(res)
+    
+    raiseIfError(gqlstr, res)
     
     resdir = json.loads(res)
     graphqlid_product = resdir['data']['productCreate']['product']['id']
     graphqlid_variant = resdir['data']['productCreate']['product']['variants']['edges'][0]['node']['id']
     graphqlid_item = resdir['data']['productCreate']['product']['variants']['edges'][0]['node']['inventoryItem']['id']
     graphqlid_level = resdir['data']['productCreate']['product']['variants']['edges'][0]['node']['inventoryItem']['inventoryLevels']['edges'][0]['node']['id']
-    
     print(resdir)
     
     cost = resdir['extensions']['cost']
@@ -106,11 +139,15 @@ def lambda_handler(event, context):
     }
     """
     
-    inventory_item_query = Template(template_inventory_item).substitute(
+    gqlstr = Template(template_inventory_item).substitute(
       sku=SKU
     )
     
-    res = shopify.GraphQL().execute(inventory_item_query)
+    print(gqlstr.replace('\n', ' '))
+    res = shopify.GraphQL().execute(gqlstr)
+    print(res)
+    
+    raiseIfError(gqlstr, res)
     
     resdir = json.loads(res)
     print(resdir)
@@ -139,20 +176,18 @@ def lambda_handler(event, context):
               }
             }
           }
-          userErrors {
-            field
-            message
-          }
         }
       }
     """
     
-    inventory_adjust_query = Template(template_inventory_adjust).substitute(
+    gqlstr = Template(template_inventory_adjust).substitute(
       graphqlid_level=graphqlid_level,
       pcs=PCS
     )
     
-    res = shopify.GraphQL().execute(inventory_adjust_query)
+    print(gqlstr.replace('\n', ' '))
+    res = shopify.GraphQL().execute(gqlstr)
+    print(res)
     
     resdir = json.loads(res)
     print(resdir)
@@ -182,9 +217,13 @@ def lambda_handler(event, context):
     }
     """
     
-    available_query = Template(template_available).substitute(graphqlid_item=graphqlid_item)
+    gqlstr = Template(template_available).substitute(graphqlid_item=graphqlid_item)
     
-    res = shopify.GraphQL().execute(available_query)
+    print(gqlstr.replace('\n', ' '))
+    res = shopify.GraphQL().execute(gqlstr)
+    print(res)
+    
+    raiseIfError(gqlstr, res)
     
     resdir = json.loads(res)
     print(resdir)
@@ -212,9 +251,13 @@ def lambda_handler(event, context):
       }
     """
         
-    template_query = Template(template_delete).substitute(graphqlid_product=graphqlid_product)
+    gqlstr = Template(template_delete).substitute(graphqlid_product=graphqlid_product)
     
-    res = shopify.GraphQL().execute(template_query)
+    print(gqlstr.replace('\n', ' '))
+    res = shopify.GraphQL().execute(gqlstr)
+    print(res)
+    
+    raiseIfError(gqlstr, res)
     
     resdir = json.loads(res)
     print(resdir)
@@ -241,12 +284,13 @@ def lambda_handler(event, context):
     
     item = {
       'id': record['messageId'],
-      'batch': record['body'],
+      'batch': body['batch'],
       'epoch': int(datetime.now().timestamp() * 1000),
       'total': int(total),
       'costs': recosts,
       'available': int(available),
-      'duration': duration
+      'duration': duration,
+      'shop': SHOPIFY_SHOP
     }
     
     print(item)

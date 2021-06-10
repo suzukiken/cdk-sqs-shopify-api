@@ -1,6 +1,7 @@
 import boto3
 import os
 import sys
+import json
 from datetime import datetime
 
 client = boto3.client('s3')
@@ -16,7 +17,10 @@ QUEUE_NAME = os.environ.get('QUEUE_NAME')
 def main(args):
     
     maxcount = int(args[1])
-    body = datetime.now().isoformat()
+    body = json.dumps({
+        'batch': str(int(datetime.now().timestamp())),
+        'shop': 'figmentresearchshop1' # figmentresearchshop1 figmentres
+    })
 
     QUEUE_URL = 'https://sqs.ap-northeast-1.amazonaws.com/{}/{}'.format(account, QUEUE_NAME)
     queue = sqs.Queue(QUEUE_URL)
