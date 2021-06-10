@@ -3,5 +3,4 @@ requests_aws4auth
 elasticsearch
 faker
 faker_vehicle
-boto3
 ShopifyAPI

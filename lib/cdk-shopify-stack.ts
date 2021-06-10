@@ -115,7 +115,7 @@ export class CdkShopifyStack extends cdk.Stack {
         SHOPIFY_SHOP_PROD: secret_prod.secretValueFromJson('SHOP').toString(),
         TABLE_NAME: table.tableName
       },
-      reservedConcurrentExecutions: 10,
+      //reservedConcurrentExecutions: 10,
     })
     
     lambda_function.addEventSource(

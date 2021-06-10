@@ -18,7 +18,8 @@ resource = boto3.resource('dynamodb', config=config)
 table = resource.Table(TABLE_NAME)
 
 class ShopifyApiError(Exception):
-  def __init__(self, graphql, response):
+  def __init__(self, message, graphql, response):
+    self.message = graphql
     self.graphql = graphql
     self.response = response
     
@@ -26,18 +27,37 @@ def raiseIfError(graphql, response):
   try:
     resdic = json.loads(response)
   except:
-    raise ShopifyApiError(graphql.replace('\n', ' '), response)
+    raise ShopifyApiError('failed to parse as json', graphql.replace('\n', ' '), response)
   if 'errors' in resdic:
-    raise ShopifyApiError(graphql.replace('\n', ' '), response)
+    message = resdic['errors'][0].get('message', 'no message')
+    raise ShopifyApiError(message, graphql.replace('\n', ' '), response)
   if 'userErrors' in resdic:
     if resdic['userErrors']:
-      raise ShopifyApiError(graphql.replace('\n', ' '), response)
+      raise ShopifyApiError(json.dumps(resdic['userErrors']), graphql.replace('\n', ' '), response)
   
 
 def lambda_handler(event, context):
   print(event)
   
   for record in event['Records']:
+    
+    response = table.get_item(Key={
+      'id': record['messageId']
+    })
+    
+    print(response)
+    
+    if 'Item' in response:
+      response = table.update_item(Key={
+          'id': record['messageId']
+        },
+        UpdateExpression='SET again = again + :one',
+        ExpressionAttributeValues={
+          ':one': 1
+        }
+      )
+      print(response)
+      continue
     
     body = json.loads(record['body'])
     
@@ -189,6 +209,8 @@ def lambda_handler(event, context):
     res = shopify.GraphQL().execute(gqlstr)
     print(res)
     
+    raiseIfError(gqlstr, res)
+    
     resdir = json.loads(res)
     print(resdir)
     
@@ -290,7 +312,8 @@ def lambda_handler(event, context):
       'costs': recosts,
       'available': int(available),
       'duration': duration,
-      'shop': SHOPIFY_SHOP
+      'shop': SHOPIFY_SHOP,
+      'again': 1
     }
     
     print(item)
