@@ -33,7 +33,8 @@ def raiseIfError(graphql, response):
     raise ShopifyApiError(message, graphql.replace('\n', ' '), response)
   if 'userErrors' in resdic:
     if resdic['userErrors']:
-      raise ShopifyApiError(json.dumps(resdic['userErrors']), graphql.replace('\n', ' '), response)
+      message = resdic['userErrors'][0].get('message', 'no message')
+      raise ShopifyApiError(message, graphql.replace('\n', ' '), response)
   
 
 def lambda_handler(event, context):
@@ -71,7 +72,7 @@ def lambda_handler(event, context):
     SHOPIFY_GRAPHQL_URL = '{}.myshopify.com'.format(SHOPIFY_SHOP)
     session = shopify.Session(SHOPIFY_GRAPHQL_URL, SHOPIFY_VERSION, SHOPIFY_PASSWORD)
     shopify.ShopifyResource.activate_session(session)
-
+    
     start = datetime.now()
     
     costs = []
